@@ -2,7 +2,7 @@
 
 ## 👥 6人详细分工与依赖说明 (全员端到端)
 
-### **成员 A：数据构建与背景探索**
+### **成员 A：数据构建与背景探索** ： FanYuhang
 *   **代码与实验任务**：编写 `dataset.py`，从 `data/` 加载 CSV，构建 PyG 的 `Data` 对象。跑出数据类别分布饼图 (Licit vs Illicit)。
 *   **报告与答辩任务**：撰写报告的 *Introduction* 和 *Dataset Description*。答辩时介绍项目背景、数据集概况及不平衡痛点。
 *   **执行状态**：
