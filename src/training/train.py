@@ -2,16 +2,30 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+import pickle
 import os
 import sys
+import argparse
 
 # Add project root to path (for direct script execution)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from src.model.model import GCN
 from src.data.dataset import EllipticDataset
+from src.utils.plot import plot_training_curves
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--lr', type=float, default=0.01, help='Learning rate')
+    parser.add_argument('--epochs', type=int, default=200, help='Number of epochs')
+    parser.add_argument('--save_dir', type=str, default='results', help='Directory to save results')
+    return parser.parse_args()
+
 
 def train_baseline():
+    args = parse_args()
+
     # -------------------- 1. Load data --------------------
     print("Loading Elliptic dataset...")
     dataset = EllipticDataset(root='data/Elliptic')
@@ -27,7 +41,7 @@ def train_baseline():
     print(model)
 
     # -------------------- 3. Optimizer --------------------
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     # -------------------- 4. Training loop --------------------
     epochs = 200
@@ -65,33 +79,27 @@ def train_baseline():
             print(f"Epoch {epoch:03d} | Train Loss: {loss.item():.4f} | Train Acc: {train_acc:.4f} | "
                   f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
 
-    # -------------------- 5. Plot and save curves --------------------
-    plt.figure(figsize=(12, 4))
+    # -------------------- 5. Save model --------------------
+    os.makedirs(args.save_dir, exist_ok=True)
+    save_path = os.path.join(args.save_dir, 'training_curves.png')
+    plot_training_curves(train_losses, val_losses, train_accs, val_accs, save_path)
 
-    plt.subplot(1, 2, 1)
-    plt.plot(train_losses, label='Train Loss')
-    plt.plot(val_losses, label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.title('Training and Validation Loss')
+    model_path = os.path.join(args.save_dir, 'model.pth')
+    torch.save(model.state_dict(), model_path)
+    print(f"Model saved to {model_path}")
 
-    plt.subplot(1, 2, 2)
-    plt.plot(train_accs, label='Train Accuracy')
-    plt.plot(val_accs, label='Validation Accuracy')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.legend()
-    plt.title('Training and Validation Accuracy')
-
-    plt.tight_layout()
-    plt.savefig('baseline_curves.png', dpi=150)
-    print("Baseline curves saved as 'baseline_curves.png'")
-    plt.show()
-
-    # -------------------- 6. Save model (optional) --------------------
-    torch.save(model.state_dict(), 'baseline_model.pth')
-    print("Baseline model saved as 'baseline_model.pth'")
+    # -------------------- 6. Save training metrics --------------------
+    os.makedirs(args.save_dir, exist_ok=True)
+    metrics_path = os.path.join(args.save_dir, 'metrics.pkl')
+    metrics = {
+        'train_losses': train_losses,
+        'val_losses': val_losses,
+        'train_accs': train_accs,
+        'val_accs': val_accs
+    }
+    with open(metrics_path, 'wb') as f:
+        pickle.dump(metrics, f)
+    print(f"Training metrics saved to {metrics_path}")
 
 if __name__ == "__main__":
     train_baseline()
