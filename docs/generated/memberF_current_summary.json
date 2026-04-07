@@ -1,0 +1,47 @@
+{
+  "title": "Current Available Comparison",
+  "shared_metrics": [
+    "accuracy",
+    "macro_f1",
+    "illicit_recall",
+    "illicit_f1"
+  ],
+  "experiments": {
+    "CE": {
+      "accuracy": 0.9723,
+      "macro_f1": 0.493,
+      "illicit_precision": 0.0,
+      "illicit_recall": 0.0,
+      "illicit_f1": 0.0
+    },
+    "Weighted CE": {
+      "accuracy": 0.9297,
+      "macro_f1": 0.486,
+      "illicit_precision": 0.0066,
+      "illicit_recall": 0.0118,
+      "illicit_f1": 0.0084
+    }
+  },
+  "notes": {
+    "batch_results": {
+      "512": {
+        "val_accuracy": 0.9394,
+        "seconds_per_batch": 0.97
+      },
+      "1024": {
+        "val_accuracy": 0.9304,
+        "seconds_per_batch": 0.51
+      },
+      "2048": {
+        "val_accuracy": 0.9372,
+        "seconds_per_batch": 0.61
+      },
+      "4096": {
+        "val_accuracy": 0.9317,
+        "seconds_per_batch": 0.65
+      }
+    },
+    "lr_recommendation": "0.01",
+    "lr_note": "Moderate LR=0.01 showed the best stability and convergence according to Member D."
+  }
+}
