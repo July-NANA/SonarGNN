@@ -199,14 +199,18 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--hidden_channels", type=int, default=64)
     parser.add_argument("--output_dir", type=str, default="outputs")
+    parser.add_argument("--save_dir", type=str, default=None)
     args = parser.parse_args()
 
     if args.config is not None:
         with open(args.config, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
-        for key in ["mode", "epochs", "lr", "hidden_channels", "output_dir"]:
+        for key in ["mode", "epochs", "lr", "hidden_channels", "output_dir", "save_dir"]:
             if key in config:
                 setattr(args, key, config[key])
+
+    if args.save_dir:
+        args.output_dir = args.save_dir
 
     if args.mode == "baseline":
         train_baseline(args.epochs, args.lr, args.hidden_channels, args.output_dir)
