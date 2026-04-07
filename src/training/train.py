@@ -1,6 +1,7 @@
 import argparse
 import csv
 import os
+import pickle
 import sys
 
 import torch
@@ -14,6 +15,7 @@ from src.model.model import GCN
 from src.data.dataset import EllipticDataset
 from src.training.loss import compute_class_weights, nll_loss_with_optional_weights
 from src.utils.plot import plot_training_curves, plot_loss_comparison
+
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -168,8 +170,6 @@ def train_loss_comparison(epochs, lr, hidden_channels, output_dir):
     print(f"Test comparison table saved to {output_dir}/test_first_100_comparison.csv")
 
 
-
-
 def train_baseline(epochs, lr, hidden_channels, output_dir):
     data = load_data()
     set_seed(42)
@@ -182,7 +182,14 @@ def train_baseline(epochs, lr, hidden_channels, output_dir):
         title_prefix="Baseline",
     )
     torch.save(model.state_dict(), os.path.join(output_dir, "baseline_model.pth"))
+
+    metrics_path = os.path.join(output_dir, "metrics.pkl")
+    os.makedirs(output_dir, exist_ok=True)
+    with open(metrics_path, "wb") as f:
+        pickle.dump(metrics, f)
+
     print(f"Baseline curves and model saved under {output_dir}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train GCN and compare loss functions.")
