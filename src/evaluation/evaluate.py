@@ -19,6 +19,16 @@ from typing import Dict, List, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 
+# Support both:
+#   1) python -m src.evaluation.evaluate
+#   2) python src/evaluation/evaluate.py
+if __package__ is None or __package__ == "":
+    import sys
+
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.evaluation.metrics import compute_binary_classification_metrics
 
 
@@ -49,12 +59,14 @@ def load_predictions(input_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarra
         y_pred: List[int] = []
         y_score: List[float] = []
         has_score = False
-        with path.open("r", encoding="utf-8", newline="") as f:
+        with path.open("r", encoding="utf-8-sig", newline="") as f:
             reader = csv.DictReader(f)
+            fieldnames = [name.strip().lstrip("\ufeff") for name in (reader.fieldnames or [])]
+            reader.fieldnames = fieldnames
             required = {"y_true", "y_pred"}
-            if not required.issubset(reader.fieldnames or []):
+            if not required.issubset(fieldnames):
                 raise ValueError("CSV must contain columns: y_true, y_pred, and optionally y_score")
-            has_score = "y_score" in (reader.fieldnames or [])
+            has_score = "y_score" in fieldnames
             for row in reader:
                 y_true.append(int(float(row["y_true"])))
                 y_pred.append(int(float(row["y_pred"])))
