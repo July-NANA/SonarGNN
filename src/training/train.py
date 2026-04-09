@@ -1,124 +1,218 @@
+import argparse
+import csv
+import os
+import pickle
+import sys
+
 import torch
 import torch.optim as optim
-import torch.nn.functional as F
-import matplotlib.pyplot as plt
-import os
-import sys
+import yaml
 
 # Add project root to path (for direct script execution)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from src.model.model import GCN
 from src.data.dataset import EllipticDataset
+from src.training.loss import compute_class_weights, nll_loss_with_optional_weights
+from src.utils.plot import plot_training_curves, plot_loss_comparison
 
-def train_baseline():
-    # -------------------- 1. Load data --------------------
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def load_data():
     print("Loading Elliptic dataset...")
-    dataset = EllipticDataset(root='data/Elliptic')
+    dataset = EllipticDataset(root="data/Elliptic")
     data = dataset[0]
-    print(f"Dataset loaded: {data.num_nodes} nodes, {data.num_edges} edges, "
-          f"{data.num_node_features} features, {data.num_classes} classes")
+    print(
+        f"Dataset loaded: {data.num_nodes} nodes, {data.num_edges} edges, "
+        f"{data.num_node_features} features, {data.num_classes} classes"
+    )
+    return data
 
-    # -------------------- 2. Model initialization --------------------
+
+def run_training(data, epochs, lr, hidden_channels, class_weights=None):
     in_channels = data.num_node_features
-    hidden_channels = 64      # Can be reduced if out-of-memory
     out_channels = data.num_classes
     model = GCN(in_channels, hidden_channels, out_channels, dropout=0.5)
-    print(model)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    # -------------------- 3. Optimizer --------------------
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
-
-    # -------------------- 4. Training loop --------------------
-    epochs = 200
-    train_losses = []
-    val_losses = []
-    train_accs = []
-    val_accs = []
+    metrics = {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []}
 
     for epoch in range(1, epochs + 1):
         model.train()
         optimizer.zero_grad()
         out = model(data.x, data.edge_index)
-        loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
+        loss = nll_loss_with_optional_weights(
+            out[data.train_mask],
+            data.y[data.train_mask],
+            class_weights=class_weights,
+        )
         loss.backward()
         optimizer.step()
-        train_losses.append(loss.item())
+        metrics["train_loss"].append(loss.item())
 
-        # Training accuracy
         pred = out.argmax(dim=1)
         train_acc = (pred[data.train_mask] == data.y[data.train_mask]).float().mean().item()
-        train_accs.append(train_acc)
+        metrics["train_acc"].append(train_acc)
 
-        # Validation
         model.eval()
         with torch.no_grad():
             val_out = model(data.x, data.edge_index)
-            val_loss = F.nll_loss(val_out[data.val_mask], data.y[data.val_mask]).item()
-            val_losses.append(val_loss)
+            val_loss = nll_loss_with_optional_weights(
+                val_out[data.val_mask],
+                data.y[data.val_mask],
+                class_weights=class_weights,
+            ).item()
+            metrics["val_loss"].append(val_loss)
             val_pred = val_out.argmax(dim=1)
             val_acc = (val_pred[data.val_mask] == data.y[data.val_mask]).float().mean().item()
-            val_accs.append(val_acc)
+            metrics["val_acc"].append(val_acc)
 
-        # Print progress every 20 epochs
         if epoch % 20 == 0:
-            print(f"Epoch {epoch:03d} | Train Loss: {loss.item():.4f} | Train Acc: {train_acc:.4f} | "
-                  f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}")
+            print(
+                f"Epoch {epoch:03d} | Train Loss: {loss.item():.4f} | Train Acc: {train_acc:.4f} | "
+                f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
+            )
 
-    # -------------------- 5. Plot and save curves --------------------
-    plt.figure(figsize=(12, 4))
+    return model, metrics
 
-    plt.subplot(1, 2, 1)
-    plt.plot(train_losses, label='Train Loss')
-    plt.plot(val_losses, label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.title('Training and Validation Loss')
 
-    plt.subplot(1, 2, 2)
-    plt.plot(train_accs, label='Train Accuracy')
-    plt.plot(val_accs, label='Validation Accuracy')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.legend()
-    plt.title('Training and Validation Accuracy')
+def save_test_comparison_table(data, model_ce, model_wce, save_path, max_rows=100):
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    model_ce.eval()
+    model_wce.eval()
+    with torch.no_grad():
+        out_ce = model_ce(data.x, data.edge_index)
+        out_wce = model_wce(data.x, data.edge_index)
 
-    plt.tight_layout()
-    plt.savefig('baseline_curves.png', dpi=150)
-    print("Baseline curves saved as 'baseline_curves.png'")
-    plt.show()
+    test_indices = torch.nonzero(data.test_mask, as_tuple=False).view(-1)[:max_rows]
+    rows = []
+    for idx in test_indices:
+        idx = idx.item()
+        true_label = int(data.y[idx].item())
+        pred_ce = int(out_ce[idx].argmax(dim=0).item())
+        pred_wce = int(out_wce[idx].argmax(dim=0).item())
+        rows.append(
+            {
+                "node_index": idx,
+                "true_label": true_label,
+                "pred_ce": pred_ce,
+                "pred_weighted_ce": pred_wce,
+                "correct_ce": int(pred_ce == true_label),
+                "correct_weighted_ce": int(pred_wce == true_label),
+            }
+        )
 
-    # -------------------- 6. Save model (optional) --------------------
-    torch.save(model.state_dict(), 'baseline_model.pth')
-    print("Baseline model saved as 'baseline_model.pth'")
+    with open(save_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "node_index",
+                "true_label",
+                "pred_ce",
+                "pred_weighted_ce",
+                "correct_ce",
+                "correct_weighted_ce",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def train_loss_comparison(epochs, lr, hidden_channels, output_dir):
+    data = load_data()
+    set_seed(42)
+
+    class_weights = compute_class_weights(
+        data.y, num_classes=data.num_classes, mask=data.train_mask
+    )
+    class_weights = class_weights.to(data.x.device)
+    print(f"Class weights: {class_weights.tolist()}")
+
+    print("\nTraining with standard CE...")
+    model_ce, ce_metrics = run_training(
+        data, epochs=epochs, lr=lr, hidden_channels=hidden_channels, class_weights=None
+    )
+
+    print("\nTraining with weighted CE...")
+    model_wce, wce_metrics = run_training(
+        data, epochs=epochs, lr=lr, hidden_channels=hidden_channels, class_weights=class_weights
+    )
+
+    plot_training_curves(
+        ce_metrics,
+        save_path=os.path.join(output_dir, "ce_curves.png"),
+        title_prefix="CE",
+    )
+    plot_training_curves(
+        wce_metrics,
+        save_path=os.path.join(output_dir, "weighted_ce_curves.png"),
+        title_prefix="Weighted CE",
+    )
+    plot_loss_comparison(
+        ce_metrics,
+        wce_metrics,
+        save_path=os.path.join(output_dir, "ce_vs_weighted_comparison.png"),
+    )
+    print(f"Curves saved under {output_dir}")
+
+    save_test_comparison_table(
+        data,
+        model_ce,
+        model_wce,
+        save_path=os.path.join(output_dir, "test_first_100_comparison.csv"),
+        max_rows=100,
+    )
+    print(f"Test comparison table saved to {output_dir}/test_first_100_comparison.csv")
+
+
+def train_baseline(epochs, lr, hidden_channels, output_dir):
+    data = load_data()
+    set_seed(42)
+    model, metrics = run_training(
+        data, epochs=epochs, lr=lr, hidden_channels=hidden_channels, class_weights=None
+    )
+    plot_training_curves(
+        metrics,
+        save_path=os.path.join(output_dir, "baseline_curves.png"),
+        title_prefix="Baseline",
+    )
+    torch.save(model.state_dict(), os.path.join(output_dir, "baseline_model.pth"))
+
+    metrics_path = os.path.join(output_dir, "metrics.pkl")
+    os.makedirs(output_dir, exist_ok=True)
+    with open(metrics_path, "wb") as f:
+        pickle.dump(metrics, f)
+
+    print(f"Baseline curves and model saved under {output_dir}")
+
 
 if __name__ == "__main__":
-    train_baseline()
+    parser = argparse.ArgumentParser(description="Train GCN and compare loss functions.")
+    parser.add_argument("--config", type=str, default=None)
+    parser.add_argument("--mode", choices=["baseline", "loss_compare"], default="loss_compare")
+    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--lr", type=float, default=0.01)
+    parser.add_argument("--hidden_channels", type=int, default=64)
+    parser.add_argument("--output_dir", type=str, default="outputs")
+    parser.add_argument("--save_dir", type=str, default=None)
+    args = parser.parse_args()
 
-#added a test line to check if the script runs without errors. The line will be removed after confirming functionality.
+    if args.config is not None:
+        with open(args.config, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+        for key in ["mode", "epochs", "lr", "hidden_channels", "output_dir", "save_dir"]:
+            if key in config:
+                setattr(args, key, config[key])
 
-def run_experiment():
-    """运行 Batch Size 对比实验的入口"""
-    import time
-    
-    batch_sizes = [512, 1024, 2048]
-    
-    for bs in batch_sizes:
-        print(f"\n{'='*50}")
-        print(f"开始实验: Batch Size = {bs}")
-        print('='*50)
-        
-        start = time.time()
-   
-        # train_with_sampling(batch_size=bs, epochs=50)
-        end = time.time()
-        
-        print(f"耗时: {(end-start)/60:.2f} 分钟")
+    if args.save_dir:
+        args.output_dir = args.save_dir
 
-if __name__ == "__main__":
-
-    train_baseline()
-    
-
-    # run_experiment()
+    if args.mode == "baseline":
+        train_baseline(args.epochs, args.lr, args.hidden_channels, args.output_dir)
+    else:
+        train_loss_comparison(args.epochs, args.lr, args.hidden_channels, args.output_dir)
