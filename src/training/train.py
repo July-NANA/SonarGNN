@@ -95,3 +95,30 @@ def train_baseline():
 
 if __name__ == "__main__":
     train_baseline()
+
+#added a test line to check if the script runs without errors. The line will be removed after confirming functionality.
+
+def run_experiment():
+    """运行 Batch Size 对比实验的入口"""
+    import time
+    
+    batch_sizes = [512, 1024, 2048]
+    
+    for bs in batch_sizes:
+        print(f"\n{'='*50}")
+        print(f"开始实验: Batch Size = {bs}")
+        print('='*50)
+        
+        start = time.time()
+   
+        # train_with_sampling(batch_size=bs, epochs=50)
+        end = time.time()
+        
+        print(f"耗时: {(end-start)/60:.2f} 分钟")
+
+if __name__ == "__main__":
+
+    train_baseline()
+    
+
+    # run_experiment()
